@@ -123,7 +123,9 @@ enum Command {
     Routes(RoutesArgs),
     #[command(about = "Validate routes, imports, and server/client boundaries")]
     Analyze(AnalyzeArgs),
-    #[command(about = "Scaffold framework-native forms, data tables, or authentication flows")]
+    #[command(
+        about = "Scaffold framework-native forms, data tables, authentication flows, or an axum host"
+    )]
     Adds(AddArgs),
     #[command(about = "Check project setup, dependencies, and runtime compatibility")]
     Doctor(DoctorArgs),
@@ -211,6 +213,8 @@ enum AddTemplate {
     Form,
     DataTable,
     Auth,
+    /// A Rust binary serving the static build and its own API from one port.
+    Axum,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

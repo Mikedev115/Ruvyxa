@@ -84,7 +84,8 @@ ruvyxa/
 │   ├── ruvyxa_graph/          # Route discovery, validation, rendering strategy detection
 │   ├── ruvyxa_middleware/     # Tower middleware, route rules, and the project worker host
 │   ├── ruvyxa_diagnostics/    # Structured error types (RUV#### codes)
-│   └── ruvyxa_tui/            # Terminal layout, progress, mascot, and theme primitives
+│   ├── ruvyxa_tui/            # Terminal layout, progress, mascot, and theme primitives
+│   └── ruvyxa_axum/           # `ruvyxa-axum` on crates.io: serve a static build from axum
 ├── packages/                  # TypeScript packages (npm)
 │   ├── ruvyxa/                # Main package (CLI wrapper + runtime Node scripts)
 │   ├── create-ruvyxa/         # Project scaffolding

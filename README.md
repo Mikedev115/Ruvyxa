@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  Ruvyxa is a production-minded web framework built around clarity, speed, and control.<br/>
-  It keeps routing, server logic, validation, builds, and runtime output in one predictable workflow.
+  A React framework whose compiler, dev server, and production host are one Rust binary.<br/>
+  File-system routes, server rendering, actions, eleven deploy targets — or the whole site inside your own Rust service.
 </p>
 
 <p align="center">
@@ -58,6 +58,36 @@ documents: [ARCHITECTURE.md](ARCHITECTURE.md), [CHANGELOG.md](CHANGELOG.md),
 ---
 
 ## Why Ruvyxa
+
+The conventions are the familiar ones — an `app/` directory, `page.tsx`, `layout.tsx`, `route.ts`,
+server actions, and SSR, SSG, ISR, CSR, or PPR chosen per route — because the conventions are not
+the point. What is different is what runs them, and what that makes possible.
+
+- **The toolchain is one prebuilt binary.** The TypeScript/JSX compiler, resolver, linker, minifier,
+  source maps, route graph, dev server, and production host are Rust, shipped as a native CLI that
+  `npm install` resolves for your platform. There is no separate bundler to install or configure and
+  no plugin chain. The [benchmarks](#benchmarks) below are a consequence of that, not the reason for
+  it.
+- **Your Rust backend can serve the site.** `ruvyxa adds axum` writes a `Cargo.toml` and a
+  `src/main.rs` built on the [`ruvyxa-axum`](crates/ruvyxa_axum) crate, which serves the static
+  build from an `axum::Router` beside your own routes: one executable, no JavaScript runtime on the
+  host, no second process, no reverse proxy joining the two, and the same security headers on your
+  API as on the pages. It covers the static target — SSG and CSR routes; a route that renders on the
+  server stays with `ruvyxa start` or a deploy adapter. See
+  [one binary for the site and the API](docs/en/10-cli.md#axum-one-binary-for-the-site-and-the-api).
+- **The deploy target is not hidden.** Eleven adapters emit each platform's native artifact, and the
+  deployed build is held to the same conformance fixtures as the native host — headers, cache
+  policy, endpoints, stored documents — so a project moves between Node, Bun, Deno, a static host,
+  an edge worker, and a serverless function without a preferred vendor and without a behaviour that
+  exists on one host only.
+- **Two hosts, one contract.** `ruvyxa dev` and `ruvyxa start` run on the Rust host; every deployed
+  build runs on `createHandler`. A rule that applied on one and not the other is the shape of defect
+  this project has fixed most often, so those rules are now fixtures both hosts replay in their own
+  tests — not a comment saying the two agree.
+
+If you write React and deploy to a JavaScript platform, the first and third are what you get. If you
+write Rust and want a React front end without a second deployment, the second is the reason this
+project is in your world at all. The rest of this section is the feature catalog.
 
 ### Rust core
 
@@ -251,7 +281,8 @@ documents: [ARCHITECTURE.md](ARCHITECTURE.md), [CHANGELOG.md](CHANGELOG.md),
 - **`analyze`** — human, JSON, SARIF 2.1.0, or a self-contained interactive HTML validation report
   for routes, imports, and server/client boundaries (`--format sarif --output reports/ruvyxa.sarif`;
   `--html`).
-- **`adds`** — scaffold an additive, framework-native `form`, `data-table`, or `auth` flow.
+- **`adds`** — scaffold an additive, framework-native `form`, `data-table`, or `auth` flow, or an
+  `axum` host: a `Cargo.toml` and `src/main.rs` that serve the static build from a Rust binary.
 - **`doctor`** — project health plus deploy-target inspection: adapter runtime, platform,
   capabilities, and every route unsupported by the selected adapter (`--json` for CI).
 - **`bench`** — benchmark route discovery, analysis, validation, and production builds.
@@ -271,6 +302,10 @@ documents: [ARCHITECTURE.md](ARCHITECTURE.md), [CHANGELOG.md](CHANGELOG.md),
 - **11 Deployment Adapters** — Zero-config native output for Vercel, Netlify, Cloudflare, Node.js,
   Bun, Deno, Static, AWS Amplify, Firebase, Railway, and Render. See the
   [Deployment Guide](docs/en/15-deploy-run-and-operate.md) for platform-specific configurations.
+- **Or your own Rust binary** — the static target's publish directory is served by the
+  [`ruvyxa-axum`](crates/ruvyxa_axum) crate from an `axum::Router`, with the `_headers` policy, the
+  project's `404.html`, and the shared content-type table, so a Rust service deploys the site the
+  way it deploys itself.
 
 ---
 
@@ -279,11 +314,12 @@ documents: [ARCHITECTURE.md](ARCHITECTURE.md), [CHANGELOG.md](CHANGELOG.md),
 Version floors are declared once, in the manifests, and this table points at them rather than
 restating numbers that go stale:
 
-| Use case                | Requirement                                                                           | Declared in                                     |
-| ----------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Building an app         | Node.js (Bun can run SSR instead). No Rust toolchain needed — the CLI ships prebuilt. | `engines.node` in each published `package.json` |
-| Supported CLI platforms | `win32-x64`, `win32-arm64`, `linux-x64`, `linux-arm64`, `darwin-arm64`                | `optionalDependencies` of `ruvyxa`              |
-| Building the framework  | Node.js, pnpm, and a Rust toolchain (edition 2024)                                    | `.nvmrc`, `packageManager`, `rust-version`      |
+| Use case                          | Requirement                                                                                          | Declared in                                     |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Building an app                   | Node.js (Bun can run SSR instead). No Rust toolchain needed — the CLI ships prebuilt.                | `engines.node` in each published `package.json` |
+| Supported CLI platforms           | `win32-x64`, `win32-arm64`, `linux-x64`, `linux-arm64`, `darwin-arm64`                               | `optionalDependencies` of `ruvyxa`              |
+| Building the framework            | Node.js, pnpm, and a Rust toolchain (edition 2024)                                                   | `.nvmrc`, `packageManager`, `rust-version`      |
+| Serving from your own Rust binary | Node.js to run `ruvyxa build`; a Rust toolchain for your application; nothing on the host at runtime | `rust-version` in the workspace `Cargo.toml`    |
 
 `ruvyxa doctor` prints the versions it actually resolved on your machine and says which ones are too
 old, which is the answer that matters more than any number written here.
@@ -352,6 +388,18 @@ scripts, so the day-to-day loop is plain npm/pnpm/yarn/bun scripts:
 Arguments after `npm run <script>` need the `--` separator (`npm run trace -- /blog/[slug]`); pnpm
 and bun pass them through directly. `ruvyxa` has no `--version` flag — run `ruvyxa doctor`, which
 prints the resolved version alongside the rest of the project report.
+
+With a Rust backend, add the axum host to the same project and build for the static target:
+
+```bash
+npm run adds -- axum                 # Cargo.toml and src/main.rs beside package.json
+npm install @ruvyxa/adapter-static   # then `adapter: staticOutput()` in ruvyxa.config.ts
+npm run build                        # writes .ruvyxa/static
+cargo run                            # serves it, and /api/health, on port 3000
+```
+
+The result is one binary with nothing else installed on the host. What it can and cannot serve is in
+[one binary for the site and the API](docs/en/10-cli.md#axum-one-binary-for-the-site-and-the-api).
 
 First time using Ruvyxa? Check out the
 **[Tutorial: Build a Mini Blog](docs/en/02-create-your-first-app.md#build-one-working-vertical-slice)**
@@ -458,14 +506,15 @@ cargo run -p ruvyxa_cli -- check --root examples/demo
 
 ```text
 ruvyxa/
-├── crates/            # Rust workspace (7 crates)
+├── crates/            # Rust workspace (8 crates)
 │   ├── ruvyxa_cli/        # commands, config loading, build orchestration
 │   ├── ruvyxa_bundler/    # TS/JSX compile, resolve, link, minify, source maps
 │   ├── ruvyxa_dev_server/ # axum server, HMR, worker pool, router, caches
 │   ├── ruvyxa_graph/      # route discovery, validation, render strategies
 │   ├── ruvyxa_middleware/ # Tower layers, route rules, worker host
 │   ├── ruvyxa_diagnostics/# RUV#### structured errors
-│   └── ruvyxa_tui/        # terminal layout, progress, mascot, and theme primitives
+│   ├── ruvyxa_tui/        # terminal layout, progress, mascot, and theme primitives
+│   └── ruvyxa_axum/       # `ruvyxa-axum` on crates.io: serve the static build from axum
 ├── packages/          # npm packages (see the table below)
 ├── templates/         # create-ruvyxa starters
 ├── examples/demo/     # 23-route integration fixture
@@ -750,6 +799,8 @@ clean. Timings are one machine's, not a specification; re-run them rather than q
 │ ruvyxa_graph        │ route discovery, import graph, render   │
 │                     │ strategy detection, validation          │
 │ ruvyxa_diagnostics  │ structured errors with RUV#### codes    │
+│ ruvyxa_axum         │ ruvyxa-axum on crates.io: the static    │
+│                     │ build served from your own axum app     │
 └─────────────────────┴─────────────────────────────────────────┘
 ```
 
@@ -812,6 +863,10 @@ as a deployment entrypoint.
 
 `ruvyxa` also resolves one of five `@ruvyxa/cli-<platform>` packages as an optional dependency. They
 carry the prebuilt native CLI for a single target and are not imported directly.
+
+One crate is published outside npm: [`ruvyxa-axum`](crates/ruvyxa_axum) on crates.io, which serves a
+static build from an `axum::Router` and is what `ruvyxa adds axum` writes into a project's
+`Cargo.toml`. It depends on nothing else in the workspace.
 
 ---
 

@@ -32,6 +32,15 @@ work in the repository.
   header and success banner, the colour roles, and the decorative gradients.
   `cargo run -p ruvyxa_tui --example preview` draws every one of those surfaces in one screen, which
   is the only way to see the animated ones without rebuilding an application.
+- `crates/ruvyxa_axum` (`ruvyxa-axum` on crates.io) serves the static target's publish directory
+  from an `axum::Router` — `_headers`, `404.html`, the shared content-type table — so a Rust
+  application and its Ruvyxa front end ship as one binary. It is the only published crate and
+  depends on nothing else in `crates/`; that is a constraint, because a workspace crate pulled in
+  would have to be published with its whole dependency closure. Its example,
+  `examples/axum_host.rs`, is byte-for-byte the `src/main.rs` that `ruvyxa adds axum` writes, so
+  `cargo test --workspace` compiles the scaffold and the `axum` lane of
+  `scripts/smoke-runtime-adapter.mjs` serves a real build through it. The crate does not render:
+  SSR, ISR, PPR, and API routes are refused by the static adapter at build time.
 - `packages/` contains the npm packages:
   - `ruvyxa` — the framework package. `runtime/*.mjs` are the modules the Rust CLI resolves by path
     and spawns or imports; `src/content-engine/` is the content engine behind

@@ -41,6 +41,7 @@ const RUNTIMES = [
   'netlify',
   'firebase',
   'static',
+  'axum',
 ]
 const SPAWNED = new Set(['node', 'bun', 'deno', 'aws', 'railway', 'render'])
 /**
@@ -125,7 +126,17 @@ const SAME_ORIGIN = Object.freeze({ origin: base, 'sec-fetch-site': 'same-origin
 const CAPABILITIES_BY_RUNTIME = {
   edge: ['ssr', 'ssg', 'csr', 'api'],
   static: ['ssg', 'csr'],
+  axum: ['ssg', 'csr'],
 }
+/**
+ * Lanes whose header policy is the `_headers` file in the publish directory.
+ *
+ * `edge` and `static` are the two targets whose adapter writes one; `axum` is
+ * the static publish directory served by `crates/ruvyxa_axum`, which reads
+ * the same file — so the header assertion on that lane is about the crate
+ * applying the file, not about this script restating it.
+ */
+const HEADERS_FILE_LANES = new Set(['edge', 'static', 'axum'])
 const capabilities = CAPABILITIES_BY_RUNTIME[runtime]
   ? new Set(CAPABILITIES_BY_RUNTIME[runtime])
   : null
@@ -181,6 +192,7 @@ const PROXIED = new Set(['aws'])
 const innerPort = PROXIED.has(runtime) ? port + 1_000 : port
 
 if (runtime === 'static') await startStaticSite()
+else if (runtime === 'axum') startAxumHost()
 else if (FETCH_MODULE.has(runtime)) await startFetchModule()
 else if (NODE_HANDLER.has(runtime)) await startNodeHandler()
 else {
@@ -200,6 +212,36 @@ function startRuntimeProcess() {
   child = spawn(runtimeExecutable(executable), args, {
     cwd: path.resolve(deploymentDirectory),
     env: { ...process.env, HOST: '127.0.0.1', PORT: String(innerPort) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  child.stdout.on('data', (chunk) => (output += chunk))
+  child.stderr.on('data', (chunk) => (output += chunk))
+}
+
+/**
+ * Spawn a Rust binary built on `ruvyxa-axum` in front of the publish directory.
+ *
+ * The static target emits no server, and the crate is the one host of that
+ * target this repository ships — the lane that proves a Rust application
+ * serves the directory the way a static platform would. The program is
+ * `crates/ruvyxa_axum/examples/axum_host.rs`, which is also the `src/main.rs`
+ * that `ruvyxa adds axum` writes. CI builds it first and names the binary
+ * through `RUVYXA_AXUM_HOST`, the way the dev-server smoke names the CLI, so
+ * the readiness window is not spent compiling.
+ */
+function startAxumHost() {
+  const program = process.env.RUVYXA_AXUM_HOST
+  if (!program) {
+    throw new Error('RUVYXA_AXUM_HOST must name the built axum_host example binary')
+  }
+  child = spawn(program, [], {
+    cwd: path.resolve(deploymentDirectory),
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(innerPort),
+      RUVYXA_STATIC_DIR: publishDirectory(),
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   child.stdout.on('data', (chunk) => (output += chunk))
@@ -524,10 +566,9 @@ function assetHeaders(pathname) {
 let headerRules = null
 
 function parseHeaderRules() {
-  // `edge` and `static` are the two targets whose adapter writes a `_headers`
-  // file; every other platform is configured through a JSON or YAML file of its
-  // own shape.
-  if (runtime !== 'edge' && runtime !== 'static') return parsePlatformHeaderRules()
+  // Every other platform is configured through a JSON or YAML file of its own
+  // shape.
+  if (!HEADERS_FILE_LANES.has(runtime)) return parsePlatformHeaderRules()
   const file = path.join(publishDirectory(), '_headers')
   if (!existsSync(file)) return []
   const rules = []

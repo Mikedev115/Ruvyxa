@@ -30,6 +30,19 @@ paths named in source comments, doc-comment attachment, silent defaults, cross-l
 template mirrors, adapter sync, and Knip. Run the narrower one directly while iterating; the
 per-check triggers are listed in the repository guide [`AGENTS.md`](../../AGENTS.md).
 
+The Rust crates are not published, with one exception: `crates/ruvyxa_axum` is `ruvyxa-axum` on
+crates.io, the crate `ruvyxa adds axum` writes into a project's `Cargo.toml`, and it moves in the
+same release as the npm packages because `scripts/bump-version.mjs` rewrites every `Cargo.toml`
+under `crates/`. Publishing it is a manual step after the npm release, from the tagged commit:
+
+```bash
+cargo package -p ruvyxa-axum --locked
+cargo publish -p ruvyxa-axum --locked
+```
+
+It depends on nothing else in the workspace, which is what keeps that a single command — a workspace
+crate added as a dependency would have to be published first, with everything it depends on.
+
 For the broad fixture, use the exact commands established by the repository guide:
 
 ```bash

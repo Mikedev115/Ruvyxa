@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### `ruvyxa-axum`: a Ruvyxa site and a Rust API in one binary
+
+A new crate, `crates/ruvyxa_axum`, published as `ruvyxa-axum`, serves the publish directory
+`ruvyxa build --adapter static` writes from an `axum::Router`. `StaticSite::open` reads `_headers`
+once and refuses a line HTTP cannot send; `router()` serves every pre-rendered document at its own
+URL without a redirect, the hashed bundles, `public/`, and the project's `404.html` with a 404
+status; `headers_layer()` puts the same policy on an application's own routes. Content types come
+from `tests/fixtures/static-asset-conformance.json`, which the crate now replays alongside the Rust
+host and the JavaScript servers. It depends on nothing else in the workspace and starts no
+JavaScript runtime: the static adapter has already refused every route that would need one.
+
+`ruvyxa adds axum` writes a `Cargo.toml` pinned to the shipped crate release and a `src/main.rs`
+that is byte-for-byte the crate's `examples/axum_host.rs`, so `cargo test --workspace` compiles the
+scaffold. A new `axum` lane in `scripts/smoke-runtime-adapter.mjs` builds `examples/deploy-smoke`
+for the static target and serves it through that program in CI, holding it to the same five checks
+as the static lane. Scaffold files may now be written at the project root (`ScaffoldFile::at_root`);
+the three application scaffolds still write under `appDir`, and a test holds that.
+
 ## v1.1.5 (2026-09-06)
 
 ### The plugin system is gone; the config object, file conventions, and route handlers replace it

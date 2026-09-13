@@ -36,14 +36,17 @@ order and Deno permission model.
 
 ## Scaffold a starter feature with `adds`
 
-`adds` accepts one or more of exactly `form`, `data-table`, and `auth`. It writes below the
-configured `appDir` (normally `app/`), not beside `package.json`. Use the generated `adds` npm
-script: its plural name distinguishes this scaffold from package-install commands such as `npm add`.
+`adds` accepts one or more of exactly `form`, `data-table`, `auth`, and `axum`. The three
+application scaffolds write below the configured `appDir` (normally `app/`), not beside
+`package.json`; `axum` is the exception, because a Cargo manifest belongs at the project root. Use
+the generated `adds` npm script: its plural name distinguishes this scaffold from package-install
+commands such as `npm add`.
 
 ```bash
 npm run adds -- form
 npm run adds -- data-table
 npm run adds -- auth
+npm run adds -- axum
 
 # Add independent examples in one operation.
 npm run adds -- form data-table auth
@@ -54,6 +57,7 @@ npm run adds -- form data-table auth
 | `form`       | `app/form-example/page.tsx`, `app/form-example/action.ts`                             | A native POST form, server-side email/message validation, an action handler, and `invalidate('contacts')`.     | Replace the example action with your persistence, authorization, anti-abuse controls, and success/error UX.           |
 | `data-table` | `app/_components/ruvyxa/data-table.tsx`                                               | A generic client component with text filtering, click-to-sort columns, a row key, and optional cell renderers. | Provide real rows and columns; add pagination, server filtering, authorization, and mutations if your app needs them. |
 | `auth`       | `app/_server/auth.ts`, `app/__ruvyxa/auth/[...path]/route.ts`, `app/sign-in/page.tsx` | Credentials sign-in UI, GET/POST auth route, and a development-only in-memory auth/rate-limit store.           | Install `@ruvyxa/auth`, set the required environment values, and replace demo credentials and memory stores.          |
+| `axum`       | `Cargo.toml`, `src/main.rs` (project root)                                            | A Rust binary that serves the static build and its own `/api/health` route from one port.                      | Build with `@ruvyxa/adapter-static`, write your API routes in Rust, and deploy the binary with the publish directory. |
 
 ### Form: what the generated action accepts
 
@@ -117,6 +121,42 @@ The generated credentials provider accepts only the email/password values above.
 demonstration, not a user database or password-hashing system. Before a production build, replace
 the development-only memory auth and rate-limit stores with `redisAuthStore`/`redisRateLimitStore`
 or another durable atomic implementation; otherwise the auth package fails closed with `RUV3105`.
+
+### Axum: one binary for the site and the API
+
+`adds axum` is for a project whose backend is Rust. It writes a `Cargo.toml` and a `src/main.rs`
+built on the [`ruvyxa-axum`](https://crates.io/crates/ruvyxa-axum) crate, which serves the publish
+directory that `ruvyxa build` writes for the static target: every pre-rendered document at its own
+URL, the hashed client bundles, `public/`, the project's `404.html`, and the `_headers` policy every
+response leaves with. The result is a single executable — no JavaScript runtime on the host, no
+second process, no reverse proxy joining the two — and the crate is the framework's own copy of
+`crates/ruvyxa_axum`, so `src/main.rs` is compiled by the framework's test suite and served against
+a real build in CI.
+
+The static target holds only routes that are fully materialized at build time. Select it in
+`ruvyxa.config.ts`; the build then refuses a server-rendered, ISR, PPR, or API route for this target
+with a per-route error, which is the point — an API belongs in the Rust binary, beside the route the
+scaffold shows:
+
+```ts
+import { config } from 'ruvyxa/config'
+import { static as staticOutput } from '@ruvyxa/adapter-static'
+
+export default config({ adapter: staticOutput() })
+```
+
+```bash
+npm install @ruvyxa/adapter-static
+npm run build      # writes .ruvyxa/static
+cargo run          # serves it, and /api/health, on http://0.0.0.0:3000
+```
+
+The program reads `RUVYXA_STATIC_DIR` (default `.ruvyxa/static`), `PORT` (default `3000`), and
+`HOST` (default `0.0.0.0`), which is what a container platform sets. `site.headers_layer()` in the
+generated `main.rs` puts the same security headers on your own routes that the published files
+carry; without it the policy would stop exactly where the static files do. Add `target/` to
+`.gitignore` yourself — the scaffold does not edit files it did not write. A project that needs
+server rendering keeps using `ruvyxa start` or a deploy adapter; this crate does not render.
 
 ### Conflicts and `--force`
 

@@ -15,23 +15,43 @@ use crate::{
 struct ScaffoldFile {
     relative: &'static str,
     content: &'static str,
+    /// Written under the project root rather than the application directory.
+    ///
+    /// Every route scaffold lives in `app/`; a Cargo manifest and a `src/main.rs`
+    /// belong beside `package.json`, where `cargo` looks for them.
+    at_root: bool,
 }
+
+/// Replaced in scaffold content with this CLI's own version, so a manifest a
+/// scaffold writes asks for the crate release that ships with it. The Rust
+/// crates and the npm packages move in one release, held by
+/// `scripts/bump-version.mjs`.
+const VERSION_PLACEHOLDER: &str = "__RUVYXA_VERSION__";
 
 pub(crate) fn scaffold_add(args: AddArgs) -> anyhow::Result<()> {
     let started = std::time::Instant::now();
     let config = load_project_config(&args.root)?;
     let app_dir = PathBuf::from(config.app_dir());
-    let mut files = BTreeMap::<PathBuf, &'static str>::new();
+    let mut files = BTreeMap::<PathBuf, String>::new();
     for template in args.templates {
         for file in template_files(template) {
+            let base = if file.at_root {
+                PathBuf::new()
+            } else {
+                app_dir.clone()
+            };
             // Joined one component at a time. `join("a/b")` keeps the literal
             // slash inside the path, which on Windows printed a mixed
             // `app\form-example/action.ts` in the created-file list.
             let relative = file
                 .relative
                 .split('/')
-                .fold(app_dir.clone(), |path, component| path.join(component));
-            files.insert(relative, file.content);
+                .fold(base, |path, component| path.join(component));
+            files.insert(
+                relative,
+                file.content
+                    .replace(VERSION_PLACEHOLDER, env!("CARGO_PKG_VERSION")),
+            );
         }
     }
     let conflicts = files
@@ -94,6 +114,23 @@ pub(crate) fn scaffold_add(args: AddArgs) -> anyhow::Result<()> {
         );
     }
 
+    if files.keys().any(|path| path.ends_with("Cargo.toml")) {
+        println!();
+        print_field(
+            "dependency",
+            info(format!(
+                "ruvyxa-axum ^{} (crates.io)",
+                env!("CARGO_PKG_VERSION")
+            )),
+        );
+        print_field(
+            "next",
+            note(
+                "set `adapter: staticOutput()` from @ruvyxa/adapter-static, run `ruvyxa build`, then `cargo run`",
+            ),
+        );
+    }
+
     print_success_banner(
         format!("Scaffolded {} file(s)", files.len()),
         started.elapsed(),
@@ -106,12 +143,45 @@ fn template_files(template: AddTemplate) -> &'static [ScaffoldFile] {
         AddTemplate::Form => FORM_FILES,
         AddTemplate::DataTable => DATA_TABLE_FILES,
         AddTemplate::Auth => AUTH_FILES,
+        AddTemplate::Axum => AXUM_FILES,
     }
 }
+
+/// A Rust binary that serves the project's static build and its own API.
+///
+/// `src/main.rs` is `crates/ruvyxa_axum/examples/axum_host.rs`, byte for byte:
+/// an example is compiled by `cargo test --workspace`, so the file this
+/// scaffold writes is built on every CI run rather than trusted to still
+/// compile. The manifest asks for the `ruvyxa-axum` release that ships with
+/// this CLI.
+const AXUM_FILES: &[ScaffoldFile] = &[
+    ScaffoldFile {
+        relative: "Cargo.toml",
+        at_root: true,
+        content: r#"[package]
+name = "app-server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+axum = "0.8"
+ruvyxa-axum = "__RUVYXA_VERSION__"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+"#,
+    },
+    ScaffoldFile {
+        relative: "src/main.rs",
+        at_root: true,
+        content: include_str!("../../ruvyxa_axum/examples/axum_host.rs"),
+    },
+];
 
 const FORM_FILES: &[ScaffoldFile] = &[
     ScaffoldFile {
         relative: "form-example/action.ts",
+        at_root: false,
         content: r#"import { action } from 'ruvyxa/server'
 
 export const submitContact = action
@@ -136,6 +206,7 @@ export const submitContact = action
     },
     ScaffoldFile {
         relative: "form-example/page.tsx",
+        at_root: false,
         content: r#"export default function FormExamplePage() {
   return (
     <main>
@@ -154,6 +225,7 @@ export const submitContact = action
 
 const DATA_TABLE_FILES: &[ScaffoldFile] = &[ScaffoldFile {
     relative: "_components/ruvyxa/data-table.tsx",
+    at_root: false,
     content: r#"'use client'
 
 import { useMemo, useState } from 'react'
@@ -207,6 +279,7 @@ export function DataTable<TRow extends Record<string, unknown>>({
 const AUTH_FILES: &[ScaffoldFile] = &[
     ScaffoldFile {
         relative: "_server/auth.ts",
+        at_root: false,
         content: r#"import { createAuth, memoryAuthStore, memoryRateLimitStore } from '@ruvyxa/auth'
 
 const development = process.env.NODE_ENV !== 'production'
@@ -236,6 +309,7 @@ export const auth = createAuth({
     },
     ScaffoldFile {
         relative: "__ruvyxa/auth/[...path]/route.ts",
+        at_root: false,
         content: r#"import { auth } from '../../../_server/auth.js'
 
 export const { GET, POST } = auth.handlers
@@ -243,6 +317,7 @@ export const { GET, POST } = auth.handlers
     },
     ScaffoldFile {
         relative: "sign-in/page.tsx",
+        at_root: false,
         content: r#"'use client'
 
 import { useState } from 'react'
@@ -312,5 +387,79 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert!(Path::new(files[0].relative).starts_with("_components"));
         assert!(files[0].content.contains("'use client'"));
+    }
+
+    /// Only the axum scaffold writes beside `package.json`; a route scaffold
+    /// that gained `at_root` by accident would land a page outside `app/`,
+    /// where discovery never looks and nothing reports it.
+    #[test]
+    fn only_the_axum_scaffold_writes_to_the_project_root() {
+        for template in [AddTemplate::Form, AddTemplate::DataTable, AddTemplate::Auth] {
+            assert!(
+                template_files(template).iter().all(|file| !file.at_root),
+                "{template:?}"
+            );
+        }
+        let files = template_files(AddTemplate::Axum);
+        assert!(files.iter().all(|file| file.at_root));
+        assert_eq!(
+            files.iter().map(|file| file.relative).collect::<Vec<_>>(),
+            ["Cargo.toml", "src/main.rs"]
+        );
+    }
+
+    /// The manifest names the crate release that ships with this CLI, and the
+    /// program is the crate's own example — the one file in this scaffold that
+    /// `cargo test --workspace` compiles.
+    #[test]
+    fn axum_scaffold_lands_at_the_root_and_pins_the_shipped_crate_release() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("app")).unwrap();
+        let args = AddArgs {
+            templates: vec![AddTemplate::Axum],
+            root: temp.path().to_path_buf(),
+            runtime: None,
+            force: false,
+        };
+        scaffold_add(args).unwrap();
+
+        let manifest = fs::read_to_string(temp.path().join("Cargo.toml")).unwrap();
+        assert!(
+            manifest.contains(&format!("ruvyxa-axum = \"{}\"", env!("CARGO_PKG_VERSION"))),
+            "{manifest}"
+        );
+        assert!(!manifest.contains(VERSION_PLACEHOLDER));
+        assert!(!temp.path().join("app/Cargo.toml").exists());
+
+        let main = fs::read_to_string(temp.path().join("src/main.rs")).unwrap();
+        let example = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../ruvyxa_axum/examples/axum_host.rs"),
+        )
+        .unwrap();
+        assert_eq!(main, example);
+        assert!(main.contains("ruvyxa_axum::StaticSite"));
+    }
+
+    /// A project that already has a Cargo manifest is a Rust project of its
+    /// own; the scaffold refuses rather than replacing it.
+    #[test]
+    fn axum_scaffold_refuses_to_overwrite_an_existing_manifest() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(temp.path().join("app")).unwrap();
+        fs::write(temp.path().join("Cargo.toml"), "user-owned").unwrap();
+        let args = AddArgs {
+            templates: vec![AddTemplate::Axum],
+            root: temp.path().to_path_buf(),
+            runtime: None,
+            force: false,
+        };
+        let error = scaffold_add(args).unwrap_err().to_string();
+        assert!(error.contains("RUV2401"), "{error}");
+        assert!(error.contains("Cargo.toml"), "{error}");
+        assert!(!temp.path().join("src/main.rs").exists());
+        assert_eq!(
+            fs::read_to_string(temp.path().join("Cargo.toml")).unwrap(),
+            "user-owned"
+        );
     }
 }

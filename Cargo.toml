@@ -7,6 +7,7 @@ members = [
   "crates/ruvyxa_middleware",
   "crates/ruvyxa_bundler",
   "crates/ruvyxa_tui",
+  "crates/ruvyxa_axum",
 ]
 resolver = "3"
 

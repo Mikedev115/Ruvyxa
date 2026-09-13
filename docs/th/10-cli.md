@@ -36,8 +36,9 @@ project command ที่รัน JavaScript รับ `--runtime node|bun|deno
 
 ## Scaffold starter feature ด้วย `adds`
 
-`adds` รับได้หนึ่งตัวหรือหลายตัวจาก `form`, `data-table` และ `auth` เท่านั้น มันเขียนไฟล์ใต้
-`appDir` ที่ตั้งค่าไว้ (โดยทั่วไปคือ `app/`) ไม่ใช่ข้าง `package.json` ให้เรียกผ่าน npm script
+`adds` รับได้หนึ่งตัวหรือหลายตัวจาก `form`, `data-table`, `auth` และ `axum` เท่านั้น scaffold
+ฝั่งแอปสามตัวเขียนไฟล์ใต้ `appDir` ที่ตั้งค่าไว้ (โดยทั่วไปคือ `app/`) ไม่ใช่ข้าง `package.json`
+ส่วน `axum` เป็นข้อยกเว้น เพราะ Cargo manifest ต้องอยู่ที่ root ของ project ให้เรียกผ่าน npm script
 `adds` ที่ starter สร้างไว้ ชื่อพหูพจน์ช่วยแยก scaffold นี้ออกจากคำสั่งติดตั้ง package อย่าง
 `npm add`
 
@@ -45,6 +46,7 @@ project command ที่รัน JavaScript รับ `--runtime node|bun|deno
 npm run adds -- form
 npm run adds -- data-table
 npm run adds -- auth
+npm run adds -- axum
 
 # เพิ่มตัวอย่างที่เป็นอิสระต่อกันในครั้งเดียว
 npm run adds -- form data-table auth
@@ -55,6 +57,7 @@ npm run adds -- form data-table auth
 | `form`       | `app/form-example/page.tsx`, `app/form-example/action.ts`                             | native POST form, การ validate email/message ฝั่ง server, action handler และ `invalidate('contacts')`              | แทน action ตัวอย่างด้วย persistence, authorization, anti-abuse control และ success/error UX ของคุณ        |
 | `data-table` | `app/_components/ruvyxa/data-table.tsx`                                               | generic client component ที่ filter ข้อความ, click เพื่อ sort column, ระบุ row key และ custom cell renderer ได้    | ส่ง row/column จริงเข้าไป; เพิ่ม pagination, server filtering, authorization และ mutation เมื่อแอปต้องใช้ |
 | `auth`       | `app/_server/auth.ts`, `app/__ruvyxa/auth/[...path]/route.ts`, `app/sign-in/page.tsx` | UI credentials sign-in, auth route สำหรับ GET/POST และ in-memory auth/rate-limit store สำหรับ development เท่านั้น | ติดตั้ง `@ruvyxa/auth`, ตั้ง environment ที่ต้องใช้ และแทน demo credential กับ memory store               |
+| `axum`       | `Cargo.toml`, `src/main.rs` (root ของ project)                                        | Rust binary ที่ serve static build และ route `/api/health` ของตัวเองจาก port เดียว                                 | build ด้วย `@ruvyxa/adapter-static` เขียน API route เป็น Rust แล้ว deploy binary พร้อม publish directory  |
 
 ### Form: action ที่สร้างรับค่าอะไร
 
@@ -118,6 +121,40 @@ credentials provider ที่สร้างยอมรับเฉพาะ e
 user database หรือระบบ hash password ก่อน production build ให้แทน in-memory auth/rate-limit store
 สำหรับ development ด้วย `redisAuthStore`/`redisRateLimitStore` หรือ durable atomic implementation
 อื่น มิฉะนั้น auth package จะ fail closed ด้วย `RUV3105`
+
+### Axum: binary เดียวสำหรับ site และ API
+
+`adds axum` มีไว้สำหรับ project ที่ backend เป็น Rust มันเขียน `Cargo.toml` และ `src/main.rs`
+ที่สร้างบน crate [`ruvyxa-axum`](https://crates.io/crates/ruvyxa-axum) ซึ่ง serve publish directory
+ที่ `ruvyxa build` เขียนให้ static target: document ที่ pre-render แล้วทุกหน้าที่ URL ของมันเอง,
+client bundle ที่มี hash, `public/`, `404.html` ของ project และ policy จาก `_headers` ที่ทุก
+response ต้องมี ผลคือ executable เดียว ไม่มี JavaScript runtime บนเครื่อง ไม่มี process ที่สอง ไม่มี
+reverse proxy มาเชื่อมสองฝั่ง และ crate นี้คือ `crates/ruvyxa_axum` ของ framework เอง ดังนั้น
+`src/main.rs` ถูก compile โดย test suite ของ framework และถูก serve กับ build จริงใน CI
+
+static target เก็บเฉพาะ route ที่ materialize ครบตอน build เท่านั้น เลือกมันใน `ruvyxa.config.ts`
+แล้ว build จะปฏิเสธ route แบบ server-rendered, ISR, PPR หรือ API สำหรับ target นี้ด้วย error
+รายเส้นทาง ซึ่งเป็นความตั้งใจ — API ควรอยู่ใน Rust binary ข้าง route ที่ scaffold แสดงให้ดู:
+
+```ts
+import { config } from 'ruvyxa/config'
+import { static as staticOutput } from '@ruvyxa/adapter-static'
+
+export default config({ adapter: staticOutput() })
+```
+
+```bash
+npm install @ruvyxa/adapter-static
+npm run build      # เขียน .ruvyxa/static
+cargo run          # serve มัน และ /api/health ที่ http://0.0.0.0:3000
+```
+
+โปรแกรมอ่าน `RUVYXA_STATIC_DIR` (ค่าเริ่มต้น `.ruvyxa/static`), `PORT` (ค่าเริ่มต้น `3000`) และ
+`HOST` (ค่าเริ่มต้น `0.0.0.0`) ซึ่งเป็นสิ่งที่ container platform ตั้งให้ `site.headers_layer()` ใน
+`main.rs` ที่สร้างขึ้นใส่ security header ชุดเดียวกับที่ไฟล์ที่ publish มีให้ route ของคุณเองด้วย
+ถ้าไม่มีมัน policy จะหยุดตรงที่ static file หยุดพอดี เพิ่ม `target/` ใน `.gitignore` เอง — scaffold
+ไม่แก้ไฟล์ที่มันไม่ได้เขียน project ที่ต้องการ server rendering ยังใช้ `ruvyxa start` หรือ deploy
+adapter ต่อไป crate นี้ไม่ render
 
 ### Conflict และ `--force`
 

@@ -1,0 +1,39 @@
+[package]
+name = "ruvyxa-axum"
+version = "1.1.5"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Serve a Ruvyxa static build from your own axum application, as one binary"
+readme = "README.md"
+keywords = ["ruvyxa", "axum", "static", "react", "tower"]
+categories = ["web-programming::http-server"]
+# The one crate in this workspace that is published to crates.io. It depends on
+# nothing else in `crates/`, and that is a constraint rather than an accident:
+# a workspace crate pulled in here would have to be published too, together
+# with everything it depends on — the bundler and its oxc tree included — and
+# every consumer would compile all of it to serve a directory of files.
+# `cargo publish -p ruvyxa-axum` is a release step; see the framework packaging
+# notes in docs/en/12-development-testing.md.
+
+[dependencies]
+# Declared directly rather than through `workspace.dependencies`: the workspace
+# entry enables `ws`, which a published crate must not make its consumers
+# compile for. `Router` and the middleware types need no feature at all.
+axum = { version = "0.8.9", default-features = false }
+tokio = { version = "1.53.1", features = ["fs"] }
+tower = { version = "0.5.3" }
+tower-http = { version = "0.7", features = ["fs"] }
+
+[dev-dependencies]
+# `axum::serve` and `Json` in `examples/axum_host.rs`, which is also the
+# `src/main.rs` that `ruvyxa adds axum` writes into a project.
+axum = { version = "0.8.9", features = ["http1", "json", "tokio"] }
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread"] }
+tower = { version = "0.5.3", features = ["util"] }
+
+[lints]
+workspace = true

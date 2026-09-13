@@ -323,6 +323,24 @@ jobs:
           FIXTURE=$(node scripts/edge-fixture.mjs examples/deploy-smoke --out .static --drop api/health --drop cached --drop rsc --drop ppr)
           cargo run -p ruvyxa_cli -- build --root "$FIXTURE" --adapter static
           node scripts/smoke-runtime-adapter.mjs static "$FIXTURE/.ruvyxa/static" 4400 "$FIXTURE/.ruvyxa/static"
+      # The same publish directory, served by a Rust binary built on
+      # `ruvyxa-axum` instead of by the script's stand-in for a static host.
+      # The program is the crate's example, which is also the `src/main.rs`
+      # that `ruvyxa adds axum` writes — so this is the lane that proves the
+      # scaffold serves what the static target emits: the `_headers` policy,
+      # the immutable bundle, and the project's own 404, none of which a unit
+      # test can ask of a listening socket. Built before the smoke starts so
+      # the readiness window is spent on the server, not on rustc.
+      - name: Build and serve the static publish directory from the axum host
+        timeout-minutes: 15
+        shell: bash
+        env:
+          RUVYXA_AXUM_HOST: ${{ github.workspace }}/target/debug/examples/axum_host${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: |
+          FIXTURE=$(node scripts/edge-fixture.mjs examples/deploy-smoke --out .static --drop api/health --drop cached --drop rsc --drop ppr)
+          cargo run -p ruvyxa_cli -- build --root "$FIXTURE" --adapter static
+          cargo build -p ruvyxa-axum --example axum_host
+          node scripts/smoke-runtime-adapter.mjs axum "$FIXTURE/.ruvyxa/static" 4403 "$FIXTURE/.ruvyxa/static"
       # Reproducibility: build, wipe, build again, compare every emitted byte.
       #
       # Everything else in this repository gates the *ingredients* — the
